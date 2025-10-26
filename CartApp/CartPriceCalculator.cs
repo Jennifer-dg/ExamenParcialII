@@ -1,6 +1,9 @@
-﻿using System;
+﻿using CartApp.Calculator;
+using CartApp.CartApp;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using static Class1;
 
 namespace CartApp
 {
@@ -8,17 +11,40 @@ namespace CartApp
     {
         private readonly ILogger _logger;
         private readonly IReceiptPrinter _printer;
-        private readonly EmailSender _emailSender;
+        private readonly IEmailSender _emailSender;
+        private readonly IDiscountCalculator _discountCalculator;
+        private readonly ITaxCalculator _taxCalculator;
+        private readonly IShippingCalculator _shippingCalculator;
+        private readonly IFragileFeeCalculator _fragileFeeCalculator;
 
-        public CartPriceCalculator() : this(new ConsoleLogger(), new ConsoleReceiptPrinter(), new ConsoleEmailSender())
-        {
-        }
-
-        public CartPriceCalculator(ILogger logger, IReceiptPrinter printer, EmailSender emailSender)
+        public CartPriceCalculator(
+            ILogger logger,
+            IReceiptPrinter printer,
+            IEmailSender emailSender,
+            IDiscountCalculator discountCalculator,
+            ITaxCalculator taxCalculator,
+            IShippingCalculator shippingCalculator,
+            IFragileFeeCalculator fragileFeeCalculator)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _printer = printer ?? throw new ArgumentNullException(nameof(printer));
             _emailSender = emailSender ?? throw new ArgumentNullException(nameof(emailSender));
+            _discountCalculator = discountCalculator ?? throw new ArgumentNullException(nameof(discountCalculator));
+            _taxCalculator = taxCalculator ?? throw new ArgumentNullException(nameof(taxCalculator));
+            _shippingCalculator = shippingCalculator ?? throw new ArgumentNullException(nameof(shippingCalculator));
+            _fragileFeeCalculator = fragileFeeCalculator ?? throw new ArgumentNullException(nameof(fragileFeeCalculator));
+        }
+
+        // Constructor por defecto (usa implementaciones por defecto)
+        public CartPriceCalculator()
+            : this(new ConsoleLogger(),
+                   new ConsoleReceiptPrinter(),
+                   new ConsoleEmailSender(),
+                   new DefaultDiscountCalculator(),
+                   new DefaultTaxCalculator(),
+                   new DefaultShippingCalculator(),
+                   new DefaultFragileFeeCalculator())
+        {
         }
 
         public decimal CalculateTotal(List<Item> items, string? coupon, bool isVip, bool emailReceipt)
@@ -31,43 +57,22 @@ namespace CartApp
                 return 0m;
             }
 
-            foreach (var it in items)
+            if (items.Any(i => i.Price < 0))
             {
-                if (it.Price < 0)
-                {
-                    var msg = $"Precio inválido en item '{it.Name}'";
-                    _logger.Error(msg);
-                    throw new ArgumentException(msg);
-                }
+                var msg = "Precio inválido en uno o más items.";
+                _logger.Error(msg);
+                throw new ArgumentException(msg);
             }
 
             decimal subtotal = items.Sum(i => i.Price);
 
-            decimal shipping = subtotal < 200m ? 30.00m : 0.00m;
-
-            decimal discountPercent = 0m;
-            if (!string.IsNullOrWhiteSpace(coupon) && coupon.Trim().ToUpper() == "PROMO10")
-            {
-                discountPercent += 0.10m;
-            }
-            if (isVip)
-            {
-                discountPercent += 0.05m;
-            }
-
-            decimal discountAmount = Math.Round(subtotal * discountPercent, 2, MidpointRounding.AwayFromZero);
+            decimal discountAmount = _discountCalculator.CalculateDiscount(subtotal, coupon, isVip);
             decimal baseAfterDiscount = subtotal - discountAmount;
+            decimal vat = _taxCalculator.CalculateTax(baseAfterDiscount);
+            decimal shipping = _shippingCalculator.CalculateShipping(subtotal);
+            decimal fragileFee = _fragileFeeCalculator.CalculateFragileFee(items);
 
-            decimal vat = Math.Round(baseAfterDiscount * 0.12m, 2, MidpointRounding.AwayFromZero);
-
-            decimal totalPartial = baseAfterDiscount + vat;
-
-            totalPartial += shipping;
-
-            decimal fragileFee = items.Any(i => i.IsFragile) ? 15.00m : 0.00m;
-            totalPartial += fragileFee;
-
-            decimal finalTotal = Math.Round(totalPartial, 2, MidpointRounding.AwayFromZero);
+            decimal finalTotal = Math.Round(baseAfterDiscount + vat + shipping + fragileFee, 2, MidpointRounding.AwayFromZero);
 
             var receipt = _printer.BuildReceipt(items, subtotal, discountAmount, vat, shipping, fragileFee, finalTotal);
             _printer.Print(receipt);

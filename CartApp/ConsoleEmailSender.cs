@@ -1,10 +1,11 @@
-﻿using System;
+﻿using CartApp.Calculator;
+using System;
 
 public class Class1
 {
-    ublic class ConsoleEmailSender : IEmailSender
+    public class ConsoleEmailSender : IEmailSender
     {
-        public bool Send(string to, string subject, string body)
+        public void Send(string to, string subject, string body)
         {
             Console.WriteLine("\n=== Enviando Email ===");
             Console.WriteLine($"Para: {to}");
@@ -12,7 +13,6 @@ public class Class1
             Console.WriteLine("Contenido:");
             Console.WriteLine(body);
             Console.WriteLine("======================\n");
-            return true; 
         }
     }
 }
